@@ -1,0 +1,163 @@
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+
+public class ClientHandler implements Runnable {
+
+    private final Socket socket;
+    private final ChatServer server;
+    private BufferedReader in;
+    private PrintWriter out;
+
+    private String username;
+    private String currentRoom;
+
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    public ClientHandler(Socket socket, ChatServer server) {
+        this.socket = socket;
+        this.server = server;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
+    public void run() {
+        try {
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out = new PrintWriter(socket.getOutputStream(), true);
+
+            if (!promptForUsername()) {
+                return; // client disconnected before picking a valid username
+            }
+
+            currentRoom = ChatServer.DEFAULT_ROOM;
+            server.joinRoom(currentRoom, this);
+            sendMessage("[SERVER] Welcome, " + username + "! You're in room '" + currentRoom + "'.");
+            sendMessage("[SERVER] Commands: /join <room>  /rooms  /users  /msg <user> <text>  /quit");
+            server.broadcastToRoom(currentRoom, "[SERVER] " + username + " has joined " + currentRoom, this);
+
+            String line;
+            while ((line = in.readLine()) != null) {
+                handleLine(line.trim());
+            }
+
+        } catch (IOException e) {
+            System.out.println("Connection lost for " + username + ": " + e.getMessage());
+        } finally {
+            disconnect();
+        }
+    }
+
+    private boolean promptForUsername() throws IOException {
+        out.println("[SERVER] Enter a username:");
+        String candidate;
+        while ((candidate = in.readLine()) != null) {
+            candidate = candidate.trim();
+            if (candidate.isEmpty()) {
+                out.println("[SERVER] Username can't be empty. Try again:");
+                continue;
+            }
+            if (server.registerClient(candidate, this)) {
+                this.username = candidate;
+                return true;
+            }
+            out.println("[SERVER] Username '" + candidate + "' is taken. Try another:");
+        }
+        return false;
+    }
+
+    private void handleLine(String line) {
+        if (line.isEmpty()) return;
+
+        if (line.startsWith("/join ")) {
+            String newRoom = line.substring(6).trim();
+            switchRoom(newRoom);
+
+        } else if (line.equals("/rooms")) {
+            sendMessage("[SERVER] Rooms: " + String.join(", ", server.getAllRoomNames()));
+
+        } else if (line.equals("/users")) {
+            StringBuilder sb = new StringBuilder("[SERVER] Users in '" + currentRoom + "': ");
+            for (ClientHandler h : server.getRoomMembers(currentRoom)) {
+                sb.append(h.getUsername()).append(" ");
+            }
+            sendMessage(sb.toString());
+
+        } else if (line.startsWith("/msg ")) {
+            handlePrivateMessage(line.substring(5));
+
+        } else if (line.equals("/quit")) {
+            disconnect();
+
+        } else if (line.startsWith("/")) {
+            sendMessage("[SERVER] Unknown command: " + line);
+
+        } else {
+            // regular chat message -> broadcast to current room
+            String stamped = "[" + timestamp() + "] [" + currentRoom + "] " + username + ": " + line;
+            server.broadcastToRoom(currentRoom, stamped, null); // include sender so they see their own message
+        }
+    }
+
+    private void switchRoom(String newRoom) {
+        if (newRoom.isEmpty()) {
+            sendMessage("[SERVER] Usage: /join <roomName>");
+            return;
+        }
+        server.leaveRoom(currentRoom, this);
+        server.broadcastToRoom(currentRoom, "[SERVER] " + username + " has left " + currentRoom, this);
+
+        currentRoom = newRoom;
+        server.joinRoom(currentRoom, this);
+        sendMessage("[SERVER] Joined room '" + currentRoom + "'.");
+        server.broadcastToRoom(currentRoom, "[SERVER] " + username + " has joined " + currentRoom, this);
+    }
+
+    private void handlePrivateMessage(String rest) {
+        int spaceIdx = rest.indexOf(' ');
+        if (spaceIdx == -1) {
+            sendMessage("[SERVER] Usage: /msg <username> <message>");
+            return;
+        }
+        String targetName = rest.substring(0, spaceIdx);
+        String content = rest.substring(spaceIdx + 1);
+
+        ClientHandler target = server.getClient(targetName);
+        if (target == null) {
+            sendMessage("[SERVER] User '" + targetName + "' not found or offline.");
+            return;
+        }
+        target.sendMessage("[" + timestamp() + "] [PM from " + username + "]: " + content);
+        sendMessage("[" + timestamp() + "] [PM to " + targetName + "]: " + content);
+    }
+
+    public void sendMessage(String message) {
+        if (out != null) {
+            out.println(message);
+        }
+    }
+
+    private String timestamp() {
+        return LocalTime.now().format(TIME_FMT);
+    }
+
+    private void disconnect() {
+        if (username != null) {
+            server.leaveRoom(currentRoom, this);
+            server.broadcastToRoom(currentRoom, "[SERVER] " + username + " has disconnected.", this);
+            server.removeClient(username);
+            System.out.println(username + " disconnected.");
+        }
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+        }
+    }
+}
