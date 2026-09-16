@@ -1,0 +1,49 @@
+# Project Statement
+
+## Problem Statement
+
+Real-time communication is a foundational requirement in modern distributed
+systems, yet the underlying mechanics — how multiple independent clients
+connect to a shared server, how concurrent access to shared state is managed
+safely, and how messages are routed reliably between parties — are often
+abstracted away by high-level messaging frameworks. This makes it difficult
+to build a genuine, practical understanding of network programming and
+concurrency from first principles.
+
+This project addresses that gap by implementing a **multi-client chat
+application from the ground up** using only core Java networking and
+threading APIs, without relying on any external chat/messaging frameworks.
+It solves the concrete problem of allowing multiple users, each on separate
+machines or processes, to communicate in real time — either broadly (chat
+rooms) or privately (direct messaging) — through a single central server.
+
+## Scope of the Project
+
+**In scope:**
+- A TCP-based client-server chat system supporting an arbitrary number of concurrent clients
+- Text-based room creation, joining, and switching
+- Private (one-to-one) messaging between connected users
+- Basic presence features: listing active rooms and listing users in a room
+- Graceful handling of client disconnects and username conflicts
+- Thread-safe management of shared server state (connected users, room membership)
+
+**Out of scope (for this version):**
+- Persistent storage of chat history across server restarts
+- User authentication or account management
+- A graphical user interface (the current implementation is console-based)
+- Message encryption / transport security
+- Horizontal scaling across multiple server instances
+
+## Target Users
+
+- Small groups needing a lightweight, self-hosted communication tool (e.g., within a local network) without dependency on third-party chat services
+- Students and developers seeking a hands-on, minimal-dependency example of socket programming and multithreading in Java
+- Anyone wanting a base project to extend with additional features (GUI, persistence, authentication) as a learning exercise
+
+## High-Level Features
+
+- Multi-client, concurrent connection handling (thread-per-client model)
+- Default and custom chat rooms, created dynamically on demand
+- Private messaging independent of room membership
+- Real-time join/leave/room-switch notifications
+- Simple, extensible command-based protocol (`/join`, `/msg`, `/rooms`, `/users`, `/quit`)
