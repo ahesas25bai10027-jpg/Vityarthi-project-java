@@ -1,0 +1,104 @@
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.*;
+import java.util.concurrent.*;
+
+public class ChatServer {
+
+    private static final int PORT = 5000;
+
+    // username -> handler, so we can route private messages
+    private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
+
+    // roomName -> set of handlers currently in that room
+    private final Map<String, Set<ClientHandler>> rooms = new ConcurrentHashMap<>();
+
+    public static final String DEFAULT_ROOM = "general";
+
+    public static void main(String[] args) {
+        int port = PORT;
+        if (args.length > 0) {
+            port = Integer.parseInt(args[0]);
+        }
+        new ChatServer().start(port);
+    }
+
+    public void start(int port) {
+        // Make sure the default room always exists
+        rooms.put(DEFAULT_ROOM, new CopyOnWriteArraySet<>());
+        //we used concurrent hashmap and copy on write array set as they are already synchronized.
+        //every connected client runs on its own thread.
+
+        System.out.println("Chat server starting on port " + port + " ...");
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
+            System.out.println("Server ready. Waiting for clients...");
+            while (true) {
+                Socket socket = serverSocket.accept();
+                ClientHandler handler = new ClientHandler(socket, this);
+                new Thread(handler).start();
+            }
+        } catch (IOException e) {
+            System.err.println("Server error: " + e.getMessage());
+        }
+    }
+
+
+    // Registers a client once they've picked a unique username. Returns false if taken.
+    public synchronized boolean registerClient(String username, ClientHandler handler) {
+        if (clients.containsKey(username)) {
+            return false;
+        }
+        clients.put(username, handler);
+        return true;
+    }
+
+    public void removeClient(String username) {
+        clients.remove(username);
+        // remove from whatever room they were in
+        for (Set<ClientHandler> members : rooms.values()) {
+            members.removeIf(h -> h.getUsername() != null && h.getUsername().equals(username));
+        }
+    }
+
+    public ClientHandler getClient(String username) {
+        return clients.get(username);
+    }
+
+    public Set<String> getAllUsernames() {
+        return clients.keySet();
+    }
+
+    public synchronized void joinRoom(String roomName, ClientHandler handler) {
+        rooms.computeIfAbsent(roomName, r -> new CopyOnWriteArraySet<>()).add(handler);
+    }
+
+    public void leaveRoom(String roomName, ClientHandler handler) {
+        Set<ClientHandler> members = rooms.get(roomName);
+        if (members != null) {
+            members.remove(handler);
+            // clean up empty custom rooms (keep default room alive always)
+            if (members.isEmpty() && !roomName.equals(DEFAULT_ROOM)) {
+                rooms.remove(roomName);
+            }
+        }
+    }
+
+    public Set<String> getAllRoomNames() {
+        return rooms.keySet();
+    }
+
+    public Set<ClientHandler> getRoomMembers(String roomName) {
+        return rooms.getOrDefault(roomName, Set.of());
+    }
+
+    public void broadcastToRoom(String roomName, String message, ClientHandler exclude) {
+        Set<ClientHandler> members = rooms.get(roomName);
+        if (members == null) return;
+        for (ClientHandler member : members) {
+            if (member != exclude) {
+                member.sendMessage(message);
+            }
+        }
+    }
+}
