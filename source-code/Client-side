@@ -1,0 +1,49 @@
+import java.io.*;
+import java.net.Socket;
+
+public class ChatClient {
+
+    public static void main(String[] args) {
+        //first of all I will take IP address and port from the user when running the commands im cmd.
+        //there are also default values for them if the user don't want to enter anything.
+        String host = args.length > 0 ? args[0] : "localhost";
+        int port = args.length > 1 ? Integer.parseInt(args[1]) : 5000;
+        //I used try with resources so that socket will close when it's use if over.
+        try (Socket skt = new Socket(host, port)) {
+
+            System.out.println("CONNECTED TO THE SERVER AT: " + host + ":" + port);
+
+            //Establishing streams to get input and output with the server.
+            BufferedReader serverIn = new BufferedReader(new InputStreamReader(skt.getInputStream()));
+            PrintWriter serverOut = new PrintWriter(skt.getOutputStream(), true);
+            BufferedReader keyboardIn = new BufferedReader(new InputStreamReader(System.in));
+
+            // listener thread: It will print anything that the thread sends.
+            Thread listener = new Thread(() -> {//I used a lambda expression for the thread class to override run method.
+                String line;
+                try {
+                    while ((line = serverIn.readLine()) != null) {
+                        System.out.println(line);
+                    }
+                }
+                catch (IOException e) {
+                    System.out.println("Disconnected from server.");
+                }
+            });
+            listener.setDaemon(true);
+            listener.start();
+
+            // Main thread: read keyboard input and send it to the server.
+            String userInput;
+            while ((userInput = keyboardIn.readLine()) != null) {
+                serverOut.println(userInput);
+                if (userInput.trim().equals("/quit")) {
+                    break;
+                }
+            }
+
+        } catch (IOException e) {
+            System.err.println("Could not connect to server: " + e.getMessage());
+        }
+    }
+}
